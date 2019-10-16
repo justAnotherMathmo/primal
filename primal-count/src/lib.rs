@@ -38,10 +38,11 @@ mod tests {
     fn test_meissel_fn() {
         use crate::prime_count::meissel_fn;
         use std::collections::HashMap;
-        let prime_array = vec![2, 3, 5, 7, 11, 13, 17, 19];
+        use primal_sieve::Sieve;
+        let primes = Sieve::new(19);
         let mut meissel_cache = HashMap::new();
-        assert_eq!(meissel_fn(30, 8, &prime_array, &mut meissel_cache), 3);
-        assert_eq!(meissel_fn(100, 1, &prime_array, &mut meissel_cache), 50);
+        assert_eq!(meissel_fn(30, 8, &primes, &mut meissel_cache), 3);
+        assert_eq!(meissel_fn(100, 1, &primes, &mut meissel_cache), 50);
     }
 
     #[test]
