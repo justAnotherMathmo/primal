@@ -35,7 +35,6 @@ fn meissel_fn_small(m: usize, n: usize, primes: &Sieve, meissel_cache: &mut Hash
     match meissel_cache.get(&(m, n)).map(|entry| entry.clone()){
         Some(result) => result,
         None => {
-            println!("m={},n={}", m, n);
             let value = meissel_fn_small(m, n-1, &primes, meissel_cache) 
                         - meissel_fn_small(m / primes.nth_prime(n), n-1, &primes, meissel_cache);
             meissel_cache.insert((m, n), value);
