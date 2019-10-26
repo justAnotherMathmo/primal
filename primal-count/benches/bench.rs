@@ -44,7 +44,21 @@ create_benchmarks! {
                 });
         },
     }
+
+    fn prime_pi_legen(SIZES) {
+        "PrimeCounter" => |b, upto: &usize| {
+            let mut s = PrimeCounter::new(*upto + 1);
+            b.iter(|| s.prime_pi_leg(*upto));
+        },
+  
+        "PrimeCounter with init" => |b, upto: &usize| {
+            b.iter(|| {
+                let mut s = PrimeCounter::new(*upto + 1);
+                s.prime_pi_leg(*upto)
+                });
+        },
+    }
 }
 
-criterion_group!(benches, new, prime_pi);
+criterion_group!(benches, new, prime_pi, prime_pi_legen);
 criterion_main!(benches);

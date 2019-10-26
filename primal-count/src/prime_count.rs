@@ -100,6 +100,36 @@ fn primes_less_than(bound: usize, primes: &Vec<usize>, prime_cache: &mut HashMap
     }
 }
 
+
+/// Find the number of primes less than bound using the Meissel-Lehmer method
+/// Leverages caching to speed up the recursive calls
+fn primes_less_than_legendre(bound: usize, primes: &Vec<usize>, prime_cache: &mut HashMap<usize, usize>, meissel_cache: &mut HashMap<(usize, usize), usize>) -> usize {
+    // First check if it's in the cache already
+    match prime_cache.get(&bound).map(|entry| entry.clone()){
+        Some(value) => value,
+        None => {
+            // The meat of the function
+            if bound < 2 {
+                return 0;
+            } else if bound <= primes[primes.len()-1] {
+                let result = match primes.binary_search(&bound)
+                {
+                    Ok(idx) => idx+1,
+                    Err(idx) => idx,
+                };
+                prime_cache.insert(bound, result);
+                return result;
+            }
+
+            let result = meissel_fn(bound, primes.len(), &primes, meissel_cache) + primes.len() - 1 ;
+
+            // Caching
+            prime_cache.insert(bound, result);
+            return result;
+        }
+    }
+}
+
 /// Memoized combinatorial prime counting function
 /// Basic idea here: https://en.wikipedia.org/wiki/Meissel%E2%80%93Lehmer_algorithm
 /// The "Meissel Function" here is phi on that Wikipedia page
@@ -158,6 +188,10 @@ impl PrimeCounter {
     /// ```
     pub fn prime_pi(&mut self, bound: usize) -> usize {
         primes_less_than(bound, &self.primes, &mut self.prime_cache, &mut self.meissel_cache)
+    }
+
+    pub fn prime_pi_leg(&mut self, bound: usize) -> usize {
+        primes_less_than_legendre(bound, &self.primes, &mut self.prime_cache, &mut self.meissel_cache)
     }
 
     /// The number of numbers less than `m` that are coprime to the first `n` prime numbers

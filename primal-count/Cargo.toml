@@ -2,6 +2,7 @@
 name = "primal-count"
 version = "0.1.0"
 authors = ["Kaimyn Chapman <kaimync@gmail.com>"]
+build = "build.rs"
 
 homepage = "https://github.com/huonw/primal"
 repository = "https://github.com/huonw/primal"
