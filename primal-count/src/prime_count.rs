@@ -1,9 +1,16 @@
 extern crate primal_sieve;
+use std::iter::FromIterator;
+// use std::thread;
+// use std::sync::{Mutex, Arc};
+extern crate rayon; // 1.0.2
+
+use rayon::prelude::*;
 
 use super::util;
 use std::cmp;
 use std::collections::HashMap;
 
+const BLOCK_LENGTH: usize = 65536;
 const MEISSEL_LOOKUP_SIZE: usize = 8; // Number of primes we do the reduce trick for
 const SMALL_PRIME_PRODUCTS: [usize; MEISSEL_LOOKUP_SIZE + 1] =
     [1, 2, 6, 30, 210, 2310, 30030, 510510, 9699690];
@@ -20,7 +27,9 @@ fn generate_primes(limit: usize) -> Vec<usize> {
     //  2) Quick counting of number of primes below a value, achieved with a binary search
     // Experiments replacing 1) or 2) with the methods in sieve seem to significantly
     //   slow things down for larger numbers
-    sieve_iter.collect()
+    // Also, weirdly, sieve_iter.collect() is slower?
+    Vec::from_iter(sieve_iter) //.collect()
+    //sieve_iter.collect()
 }
 
 /// Memoized combinatorial prime counting function
@@ -28,16 +37,22 @@ fn generate_primes(limit: usize) -> Vec<usize> {
 /// The "Meissel Function" here is phi on that Wikipedia page
 pub struct PrimeCounter {
     limit: usize,
+    sqrt_limit: usize,
     primes: Vec<usize>,
     pi_cache: HashMap<usize, usize>,
     meissel_cache: HashMap<(usize, usize), usize>,
 }
 
 impl PrimeCounter {
-    /// Create a new PrimeCounter instance, which generates all the primes up to sqrt(limit)
+    /// Create a new PrimeCounter instance, which generates all the primes up to (limit)^(2/3)
+    /// We actually... Don't need to do this. We need only the primes up to sqrt(limit)
+    /// However, we do need to sieve up to here, in order to quickly evaluate pi(limit/a) later
+    /// Some thought should go into this.
     pub fn new(limit: usize) -> PrimeCounter {
         let mut pi_cache = HashMap::new();
-        let primes = generate_primes(util::int_cubic_root(limit * limit));
+        // let primes = generate_primes(util::int_cubic_root(limit * limit));
+        let sqrt_limit = util::int_square_root(limit);
+        let primes = generate_primes(sqrt_limit);
 
         // Insert primes <= 10 - this is mainly to deal with underflow issues later
         for n in 0..=10 {
@@ -55,6 +70,7 @@ impl PrimeCounter {
 
         PrimeCounter {
             limit,
+            sqrt_limit,
             primes,
             pi_cache,
             meissel_cache,
@@ -67,7 +83,8 @@ impl PrimeCounter {
     /// object is large enough.
     pub fn update_limit(&mut self, limit: usize) {
         self.limit = limit;
-        self.primes = generate_primes(util::int_square_root(limit));
+        self.sqrt_limit = util::int_square_root(limit);
+        self.primes = generate_primes(self.sqrt_limit);
     }
 
     /// The number of primes that are at least `bound`
@@ -86,7 +103,8 @@ impl PrimeCounter {
     /// assert_eq!(pc.prime_pi(8166), 1024);
     /// ```
     pub fn prime_pi(&mut self, bound: usize) -> usize {
-        self.primes_less_than(bound)
+        self.primes_less_than_lmo(bound)
+        // self.primes_less_than_meissel(bound)
     }
 
     /// The number of numbers less than `m` that are coprime to the first `n` prime numbers
@@ -152,7 +170,7 @@ impl PrimeCounter {
             None => {
                 let mut result = self.meissel_fn_small(m, MEISSEL_LOOKUP_SIZE);
                 let sqrt_m = util::int_square_root(m);
-                let bound = self.primes_less_than(sqrt_m);
+                let bound = self.primes_less_than_meissel(sqrt_m);
                 let largest_prime_index = cmp::min(cmp::max(bound, MEISSEL_LOOKUP_SIZE), n);
                 result = result + largest_prime_index - n;
 
@@ -168,7 +186,90 @@ impl PrimeCounter {
 
     /// Find the number of primes less than bound using the Meissel-Lehmer method
     /// Leverages caching to speed up the recursive calls
-    fn primes_less_than(&mut self, bound: usize) -> usize {
+    fn primes_less_than_meissel(&mut self, bound: usize) -> usize {
+        // First check if it's in the cache already
+        match self.pi_cache.get(&bound).map(|entry| entry.clone()) {
+            Some(value) => value,
+            None => {
+                // The meat of the function
+                if bound < 2 {
+                    return 0;
+                } else if bound <= self.sqrt_limit {
+                    let result = match self.primes.binary_search(&bound) {
+                        Ok(idx) => idx + 1,
+                        Err(idx) => idx,
+                    };
+                    self.pi_cache.insert(bound, result);
+                    return result;
+                }
+
+                let sqrt_bound = util::int_square_root(bound);
+                let quartic_bound = util::int_quartic_root(bound);
+
+                let nprimes_below_4thr = self.primes_less_than_meissel(quartic_bound);
+                let nprimes_below_3rdr = self.primes_less_than_meissel(util::int_cubic_root(bound));
+                let nprimes_below_2ndr = self.primes_less_than_meissel(sqrt_bound);
+
+                // Issues with underflow here if nprimes_below_2ndr + nprimes_below_4thr < 2
+                // Dealt with by populating the offending (small) values in the cache at the top level
+                let mut result = ((nprimes_below_2ndr + nprimes_below_4thr - 2)
+                    * (nprimes_below_2ndr - nprimes_below_4thr + 1))
+                    / 2;
+                result += self.meissel_fn_large(bound, nprimes_below_4thr);
+
+                for i in nprimes_below_4thr..nprimes_below_2ndr {
+                    let ith_prime = self.primes[i];
+                    // Need to make this faster
+                    result -= self.primes_less_than_meissel(bound / ith_prime);
+                    if i < nprimes_below_3rdr {
+                        let bi = self.primes_less_than_meissel(util::int_square_root(bound / ith_prime));
+                        for j in i..bi {
+                            let jth_prime = self.primes[j];
+                            // p_i, p_j > bound^(1/4), so bound / (p_i * p_j) < bound ^ (1/2)
+                            // Hence, this is a cheap lookup, and thus why we don't bother
+                            //  optimising this further...
+                            result -= self.primes_less_than_meissel(bound / ith_prime / jth_prime) - j;
+                        }
+                    }
+                }
+
+                // Caching
+                self.pi_cache.insert(bound, result);
+                result
+            }
+        }
+    }
+
+    
+    // Here we make use of the fact that m_fn(m, n) can be evaluated with fewer calls by
+    // taking advantage of n being large
+    fn meissel_fn_large_lmo(&mut self, m: usize, n: usize) -> usize {
+        if n <= MEISSEL_LOOKUP_SIZE {
+            return self.meissel_fn_small(m, n);
+        }
+        if self.primes[n - 1] >= m {
+            return 1;
+        }
+        match self.meissel_cache.get(&(m, n)).map(|entry| entry.clone()) {
+            Some(result) => result,
+            None => {
+                let mut result = self.meissel_fn_small(m, MEISSEL_LOOKUP_SIZE);
+                let sqrt_m = util::int_square_root(m);
+                let bound = self.primes_less_than_lmo(sqrt_m);
+                let largest_prime_index = cmp::min(cmp::max(bound, MEISSEL_LOOKUP_SIZE), n);
+                result = result + largest_prime_index - n;
+
+                for idx in MEISSEL_LOOKUP_SIZE..largest_prime_index {
+                    result -= self.meissel_fn_large_lmo(m / self.primes[idx], idx);
+                }
+
+                self.meissel_cache.insert((m, n), result);
+                result
+            }
+        }
+    }
+
+    fn primes_less_than_lmo(&mut self, bound: usize) -> usize {
         // First check if it's in the cache already
         match self.pi_cache.get(&bound).map(|entry| entry.clone()) {
             Some(value) => value,
@@ -186,34 +287,15 @@ impl PrimeCounter {
                 }
 
                 let sqrt_bound = util::int_square_root(bound);
-                let quartic_bound = util::int_quartic_root(bound);
 
-                let nprimes_below_4thr = self.primes_less_than(quartic_bound);
-                let nprimes_below_3rdr = self.primes_less_than(util::int_cubic_root(bound));
-                let nprimes_below_2ndr = self.primes_less_than(sqrt_bound);
+                let nprimes_below_3rdr = self.primes_less_than_lmo(util::int_cubic_root(bound));
+                let nprimes_below_2ndr = self.primes_less_than_lmo(sqrt_bound);
 
-                // Issues with underflow here if nprimes_below_2ndr + nprimes_below_4thr < 2
-                // Dealt with by populating the offending (small) values in the cache at the top level
-                let mut result = ((nprimes_below_2ndr + nprimes_below_4thr - 2)
-                    * (nprimes_below_2ndr - nprimes_below_4thr + 1))
-                    / 2;
-                result += self.meissel_fn_large(bound, nprimes_below_4thr);
-
-                for i in nprimes_below_4thr..nprimes_below_2ndr {
-                    let ith_prime = self.primes[i];
-                    // Need to make this faster
-                    result -= self.primes_less_than(bound / ith_prime);
-                    if i < nprimes_below_3rdr {
-                        let bi = self.primes_less_than(util::int_square_root(bound / ith_prime));
-                        for j in i..bi {
-                            let jth_prime = self.primes[j];
-                            // p_i, p_j > bound^(1/4), so bound / (p_i * p_j) < bound ^ (1/2)
-                            // Hence, this is a cheap lookup, and thus why we don't bother
-                            //  optimising this further...
-                            result -= self.primes_less_than(bound / ith_prime / jth_prime) - j;
-                        }
-                    }
-                }
+                let mut result = nprimes_below_3rdr - 1;
+                result += self.meissel_fn_large_lmo(bound, nprimes_below_3rdr);
+                result += nprimes_below_2ndr * (nprimes_below_2ndr - 1) / 2;
+                result -= nprimes_below_3rdr * (nprimes_below_3rdr - 1) / 2;
+                result -= self.compute_p2(bound);
 
                 // Caching
                 self.pi_cache.insert(bound, result);
@@ -221,7 +303,157 @@ impl PrimeCounter {
             }
         }
     }
+
+    fn compute_p2(&self, bound: usize) -> usize {
+        let upper_sieve_bound = util::int_cubic_root(bound * bound);
+        let cbrt_bound = util::int_cubic_root(bound);
+        let sqrt_bound = util::int_square_root(bound);
+        // let primes = generate_primes(sqrt_bound);
+        let sqrt_bound_idx = match self.primes.binary_search(&sqrt_bound) {
+            Ok(idx) => idx, // TODO: Check this
+            Err(idx) => idx - 1
+        };
+        let cbrt_bound_idx = match self.primes.binary_search(&cbrt_bound) {
+            Ok(idx) => idx, // TODO: Check this
+            Err(idx) => idx - 1
+        };
+        let mut p2_eval_points = Vec::new();
+        for pidx in cbrt_bound_idx..=sqrt_bound_idx { // TODO: Check this
+            p2_eval_points.push(bound / self.primes[pidx]);
+        }
+        p2_eval_points.reverse();
+
+        let max_sieve_index = (upper_sieve_bound - sqrt_bound)  / BLOCK_LENGTH;
+        // let max_sieve_index = (upper_sieve_bound - sqrt_bound) / 2 / BLOCK_LENGTH;
+        let mut total_bound_vec = vec![0; max_sieve_index + 1];
+        let mut sum_p2_evals_vec = vec![0; max_sieve_index + 1];
+        let mut num_p2_evals_vec = vec![0; max_sieve_index + 1];
+        let mut test_vec = vec![(0, 0, 0); max_sieve_index + 1];
+        let start_idx = sqrt_bound;
+        // let start_idx = sqrt_bound / 2;
+        // start_idx = start_idx + ((start_idx + 1) % 2);
+        let mut primes_count = sqrt_bound_idx + 1;
+        let mut handles = vec![];
+        for i in 0..=max_sieve_index {
+            // let handle = thread::spawn(|| {
+                let lower = start_idx + BLOCK_LENGTH * i;
+                // let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound / 2);
+                let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound);
+                let (total_bound, sum_p2_evals, num_p2_evals) = sieve_interval(lower, upper, &self.primes, &p2_eval_points);
+                test_vec[i] = (total_bound, sum_p2_evals, num_p2_evals);
+                total_bound_vec[i] = total_bound;
+                sum_p2_evals_vec[i] = sum_p2_evals;
+                num_p2_evals_vec[i] = num_p2_evals;
+            });
+            // handles.push(handle);
+        }
+// fn main() {
+//     let mut vector = vec![0u8; 10];
+
+//     vector.par_chunks_mut(2).for_each(|e| {
+//         e[0] = 1;
+//         e[1] = 2;
+//     });
+
+//     println!("{:?}", vector);
+// }
+
+        
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let mut result = 0;
+        for i in 0..=max_sieve_index {
+            result += sum_p2_evals_vec[i] + primes_count * num_p2_evals_vec[i];
+            primes_count += total_bound_vec[i];
+        }
+
+        result
+    }
 }
+
+fn sieve_interval(lower: usize, upper: usize, primes: &Vec<usize>, p2_points: &Vec<usize>) -> (usize, usize, usize) {
+    let mut sieve = vec![true; upper - lower];
+    // let mut sieve = vec![true; (upper - lower)/2];
+    // Returns an array of primes up to and including bound
+    for prime in primes {
+        // if *prime > 2 {
+        let mut next_idx = if prime * prime > lower {
+            prime * prime - lower
+        } else {
+            (prime - (lower % prime)) % prime
+        };
+        while next_idx < upper - lower {
+            sieve[next_idx] = false;
+            next_idx += prime;
+        }
+        // }
+    }
+
+    let (mut total_bound, mut sum_p2_evals, mut num_p2_evals) = (0,0,0);
+    let mut last_sieve_idx = 0;
+    for p2_pt in p2_points {
+        if p2_pt >= &lower && p2_pt < &upper {
+            let mut next_few_bits = 0;
+            for idx in last_sieve_idx..=(p2_pt-lower) {
+                next_few_bits += sieve[idx] as usize
+            }
+            last_sieve_idx = p2_pt - lower + 1;
+            num_p2_evals += 1;
+            sum_p2_evals += total_bound + next_few_bits;
+            total_bound += next_few_bits;
+        }
+    }
+    for idx in last_sieve_idx..(upper-lower) {
+        total_bound += sieve[idx] as usize;
+    }
+
+    (total_bound, sum_p2_evals, num_p2_evals)
+}
+
+    
+    // /// Find the number of primes less than bound using the Meissel-Lehmer method
+    // /// Leverages caching to speed up the recursive calls
+    // fn primes_less_than_lehmer(&mut self, bound: usize) -> usize {
+    //     // First check if it's in the cache already
+    //     match self.pi_cache.get(&bound).map(|entry| entry.clone()) {
+    //         Some(value) => value,
+    //         None => {
+    //             // The meat of the function
+    //             if bound < 2 {
+    //                 return 0;
+    //             } else if bound <= self.primes[self.primes.len() - 1] {
+    //                 let result = match self.primes.binary_search(&bound) {
+    //                     Ok(idx) => idx + 1,
+    //                     Err(idx) => idx,
+    //                 };
+    //                 self.pi_cache.insert(bound, result);
+    //                 return result;
+    //             }
+
+    //             let sqrt_bound = util::int_square_root(bound);
+
+    //             let nprimes_below_3rdr = self.primes_less_than_lehmer(util::int_cubic_root(bound));
+    //             let nprimes_below_2ndr = self.primes_less_than_lehmer(sqrt_bound);
+
+    //             let mut result = nprimes_below_3rdr - 1;
+    //             result += self.meissel_fn_large(bound, nprimes_below_3rdr);
+    //             result += nprimes_below_2ndr * (nprimes_below_2ndr - 1) / 2;
+    //             result -= nprimes_below_3rdr * (nprimes_below_3rdr - 1) / 2;
+
+    //             for i in nprimes_below_3rdr..nprimes_below_2ndr {
+    //                 let ith_prime = self.primes[i];
+    //                 // Need to make this faster
+    //                 result -= self.primes_less_than_lehmer(bound / ith_prime);
+    //             }
+
+    //             // Caching
+    //             self.pi_cache.insert(bound, result);
+    //             result
+    //         }
+    //     }
+    // }
 
 #[cfg(test)]
 mod tests {
