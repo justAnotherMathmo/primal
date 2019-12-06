@@ -4,13 +4,13 @@ use std::iter::FromIterator;
 // use std::sync::{Mutex, Arc};
 extern crate rayon; // 1.0.2
 
-use rayon::prelude::*;
+use prime_count::rayon::prelude::*;
 
 use super::util;
 use std::cmp;
 use std::collections::HashMap;
 
-const BLOCK_LENGTH: usize = 65536;
+const BLOCK_LENGTH: usize = 1048576; // 2^20
 const MEISSEL_LOOKUP_SIZE: usize = 8; // Number of primes we do the reduce trick for
 const SMALL_PRIME_PRODUCTS: [usize; MEISSEL_LOOKUP_SIZE + 1] =
     [1, 2, 6, 30, 210, 2310, 30030, 510510, 9699690];
@@ -186,7 +186,8 @@ impl PrimeCounter {
 
     /// Find the number of primes less than bound using the Meissel-Lehmer method
     /// Leverages caching to speed up the recursive calls
-    fn primes_less_than_meissel(&mut self, bound: usize) -> usize {
+    /// TODO Make not pub later
+    pub fn primes_less_than_meissel(&mut self, bound: usize) -> usize {
         // First check if it's in the cache already
         match self.pi_cache.get(&bound).map(|entry| entry.clone()) {
             Some(value) => value,
@@ -269,7 +270,8 @@ impl PrimeCounter {
         }
     }
 
-    fn primes_less_than_lmo(&mut self, bound: usize) -> usize {
+    /// TODO Make not pub later
+    pub fn primes_less_than_lmo(&mut self, bound: usize) -> usize {
         // First check if it's in the cache already
         match self.pi_cache.get(&bound).map(|entry| entry.clone()) {
             Some(value) => value,
@@ -277,7 +279,7 @@ impl PrimeCounter {
                 // The meat of the function
                 if bound < 2 {
                     return 0;
-                } else if bound <= self.primes[self.primes.len() - 1] {
+                } else if bound <= self.sqrt_limit {
                     let result = match self.primes.binary_search(&bound) {
                         Ok(idx) => idx + 1,
                         Err(idx) => idx,
@@ -295,7 +297,9 @@ impl PrimeCounter {
                 result += self.meissel_fn_large_lmo(bound, nprimes_below_3rdr);
                 result += nprimes_below_2ndr * (nprimes_below_2ndr - 1) / 2;
                 result -= nprimes_below_3rdr * (nprimes_below_3rdr - 1) / 2;
+                // println!("Pre p2");
                 result -= self.compute_p2(bound);
+                // println!("Post p2");
 
                 // Caching
                 self.pi_cache.insert(bound, result);
@@ -305,8 +309,9 @@ impl PrimeCounter {
     }
 
     fn compute_p2(&self, bound: usize) -> usize {
-        let upper_sieve_bound = util::int_cubic_root(bound * bound);
         let cbrt_bound = util::int_cubic_root(bound);
+        // TODO write a fast x^(2/3) in integer arithmetic - below is shit
+        let upper_sieve_bound = util::int_cubic_root128((bound as u128) * (bound as u128)) as usize;
         let sqrt_bound = util::int_square_root(bound);
         // let primes = generate_primes(sqrt_bound);
         let sqrt_bound_idx = match self.primes.binary_search(&sqrt_bound) {
@@ -325,28 +330,39 @@ impl PrimeCounter {
 
         let max_sieve_index = (upper_sieve_bound - sqrt_bound)  / BLOCK_LENGTH;
         // let max_sieve_index = (upper_sieve_bound - sqrt_bound) / 2 / BLOCK_LENGTH;
-        let mut total_bound_vec = vec![0; max_sieve_index + 1];
-        let mut sum_p2_evals_vec = vec![0; max_sieve_index + 1];
-        let mut num_p2_evals_vec = vec![0; max_sieve_index + 1];
-        let mut test_vec = vec![(0, 0, 0); max_sieve_index + 1];
+        // let mut total_bound_vec = vec![0; max_sieve_index + 1];
+        // let mut sum_p2_evals_vec = vec![0; max_sieve_index + 1];
+        // let mut num_p2_evals_vec = vec![0; max_sieve_index + 1];
+        let mut information_vec = vec![(0, 0, 0); max_sieve_index + 1];
         let start_idx = sqrt_bound;
         // let start_idx = sqrt_bound / 2;
         // start_idx = start_idx + ((start_idx + 1) % 2);
         let mut primes_count = sqrt_bound_idx + 1;
-        let mut handles = vec![];
+        // let mut handles = vec![];
         for i in 0..=max_sieve_index {
-            // let handle = thread::spawn(|| {
-                let lower = start_idx + BLOCK_LENGTH * i;
-                // let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound / 2);
-                let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound);
-                let (total_bound, sum_p2_evals, num_p2_evals) = sieve_interval(lower, upper, &self.primes, &p2_eval_points);
-                test_vec[i] = (total_bound, sum_p2_evals, num_p2_evals);
-                total_bound_vec[i] = total_bound;
-                sum_p2_evals_vec[i] = sum_p2_evals;
-                num_p2_evals_vec[i] = num_p2_evals;
-            });
-            // handles.push(handle);
+            information_vec[i] = (i, 0, 0);
         }
+        information_vec.par_iter_mut().for_each(|e| {
+            let i = e.0;
+            let lower = start_idx + BLOCK_LENGTH * i;
+            let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound);
+            let (total_bound, sum_p2_evals, num_p2_evals) = sieve_interval_p2(lower, upper, &self.primes, &p2_eval_points);
+            // println!("{}:    {} {} {}", i, total_bound, sum_p2_evals, num_p2_evals);
+            *e = (total_bound, sum_p2_evals, num_p2_evals);
+        });
+        // for i in 0..=max_sieve_index {
+            // let handle = thread::spawn(|| {
+                // let lower = start_idx + BLOCK_LENGTH * i;
+                // // let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound / 2);
+                // let upper = cmp::min(start_idx + BLOCK_LENGTH * (i + 1), upper_sieve_bound);
+                // let (total_bound, sum_p2_evals, num_p2_evals) = sieve_interval(lower, upper, &self.primes, &p2_eval_points);
+                // test_vec[i] = (total_bound, sum_p2_evals, num_p2_evals);
+                // total_bound_vec[i] = total_bound;
+                // sum_p2_evals_vec[i] = sum_p2_evals;
+                // num_p2_evals_vec[i] = num_p2_evals;
+            // });
+            // handles.push(handle);
+        // }
 // fn main() {
 //     let mut vector = vec![0u8; 10];
 
@@ -359,21 +375,55 @@ impl PrimeCounter {
 // }
 
         
-        for handle in handles {
-            handle.join().unwrap();
-        }
+        // for handle in handles {
+        //     handle.join().unwrap();
+        // }
 
         let mut result = 0;
         for i in 0..=max_sieve_index {
-            result += sum_p2_evals_vec[i] + primes_count * num_p2_evals_vec[i];
-            primes_count += total_bound_vec[i];
+            result += information_vec[i].1 + primes_count * information_vec[i].2;
+            primes_count += information_vec[i].0;
+        }
+
+        result
+    }
+
+    fn special_leaves_a(&mut self, bound: usize, mobius: &Vec<isize>) -> isize {
+        // Need to finish - below just ordinary leaves
+        let y = util::int_cubic_root(bound);
+        let sqrt_y = util::int_square_root(bound);
+        let pi_sqrt_y = self.primes_less_than_lmo(sqrt_y);
+        let mut result = 0;
+        for i in MEISSEL_LOOKUP_SIZE..=pi_sqrt_y {
+            for j in (i+1)..=pi_sqrt_y {
+                 // m = 
+            }
+        }
+
+        result
+    }
+
+    fn special_leaves_b(&mut self, bound: usize, upper: usize, lower: usize, mobius: &Vec<isize>) -> isize {
+        // Need to finish - below just ordinary leaves
+        let y = util::int_cubic_root(bound);
+        let sqrt_y = util::int_square_root(bound);
+        let pi_sqrt_y = self.primes_less_than_lmo(sqrt_y);
+        let mut result = 0;
+        for i in MEISSEL_LOOKUP_SIZE..=pi_sqrt_y {
+            let p_i = self.primes[i];
+            let mut m = self.primes_less_than_lmo(lower / p_i);
+            let p_m = self.primes[m];
+            while p_m <= upper / p_i {
+                result += self.meissel_fn_large_lmo(bound / (p_i * p_m), 1);
+                m += 1;
+            }
         }
 
         result
     }
 }
 
-fn sieve_interval(lower: usize, upper: usize, primes: &Vec<usize>, p2_points: &Vec<usize>) -> (usize, usize, usize) {
+fn sieve_interval_p2(lower: usize, upper: usize, primes: &Vec<usize>, p2_points: &Vec<usize>) -> (usize, usize, usize) {
     let mut sieve = vec![true; upper - lower];
     // let mut sieve = vec![true; (upper - lower)/2];
     // Returns an array of primes up to and including bound
@@ -410,6 +460,54 @@ fn sieve_interval(lower: usize, upper: usize, primes: &Vec<usize>, p2_points: &V
     }
 
     (total_bound, sum_p2_evals, num_p2_evals)
+}
+
+fn sieve_tables(bound: usize, primes: &Vec<usize>) -> Vec<isize> {
+    let mut sieve = vec![1; bound];
+    for prime in primes {
+        let p_squared = prime * prime;
+        if p_squared > bound {
+            return sieve;
+        }
+        for pi in 1..=(bound/prime) {
+            if sieve[pi - 1] == 1 {
+                sieve[pi - 1] = -(pi as isize);
+            } else {
+                sieve[pi - 1] *= -1;
+            };
+        }
+        for ppi in 1..=(bound / p_squared) {
+            sieve[ppi - 1] = 0;
+        }
+    }
+
+    sieve
+}
+
+fn ordinary_leaves(bound: usize, mobius: &Vec<isize>) -> isize {
+    let cbrt_bound = util::int_cubic_root(bound);
+    let mut result = 0;
+    for n in 1..=cbrt_bound {
+        result += mobius[n - 1].signum() * (bound / n) as isize;
+    }
+
+    result
+}   
+
+fn special_leaves_b(bound: usize, mobius: &Vec<isize>) -> isize {
+    // Need to finish - below just ordinary leaves
+    let cbrt_bound = util::int_cubic_root(bound);
+    let y = cbrt_bound;
+    let mut result = 0;
+    for n in 1..=cbrt_bound {
+        result += mobius[n - 1].signum() * (bound / n) as isize;
+    }
+
+    result
+}
+
+fn is_special_leaf(n: usize, b: usize) -> bool {
+    true
 }
 
     

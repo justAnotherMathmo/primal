@@ -20,6 +20,17 @@ pub fn int_cubic_root(value: usize) -> usize {
     return x;
 }
 
+pub fn int_cubic_root128(value: u128) -> u128 {
+    let mut x = value;
+    let mut y = (2 * value + 1) / 3; // Plus 1 only to protect against division by 0 later
+    while y < x {
+        x = y;
+        y = (2 * x + value / x / x) / 3; // Divide split to protect against overflow
+    }
+    return x;
+}
+
+
 // Returns the largest integer at least n^(1/4) using our fast integer sqrt
 // N.b. it's faster to use two sqrts than naively apply Newton here
 pub fn int_quartic_root(value: usize) -> usize {

@@ -1,0 +1,128 @@
+\title{Counting Primes}
+% \author{
+%         Vitaly Surazhsky \\
+%                 Department of Computer Science\\
+%         Technion---Israel Institute of Technology\\
+%         Technion City, Haifa 32000, \underline{Israel}
+%             \and
+%         Yossi Gil\\
+%         Department of Computer Science\\
+%         Technion---Israel Institute of Technology\\
+%         Technion City, Haifa 32000, \underline{Israel}
+% }
+\date{\today}
+
+\documentclass[12pt]{article}
+\usepackage{bbm}
+\usepackage{amsmath}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Here we briefly detail the algorithms used within to evaluate $\pi(x)$ - the number of prime numbers less than $x$ \ldots
+\end{abstract}
+
+\section{The Maths}
+\subsection{Sieve of Eratosthenes}
+This is the algorithm everyone knows - but it's worth detailing, because it feeds into the combinatorial algorithms.
+The sieve of Eratosthenes works by writing down a bit for each number from 2 to $x$. Then you walk along the sieve
+until you hit a bit at position $p$ that's on. This number is a prime number, so you flip every bit that's a multiple
+of $p$. As a minor optimisation, all numbers less than $p^2$ will already have their final status determined, so you
+can start there and work up to $x$. Then, when you reach $\sqrt{x}$, you can stop and count - every number in the sieve
+will have its final status.
+
+\subsection{Legendre's Method}
+This works by thinking about the sieve of Eratosthenes. First, we define a function $\phi(x,a)$ to be the number of
+numbers at most $x$ that are coprime to the first $a$ prime numbers. Then, for the same reason that we can stop
+crossing off numbers at $\sqrt{x}$ (i.e. every between $\sqrt{x}$ and $x$ is either prime or has a factor at
+most $\sqrt{x}$), we get that:
+$$\pi(x) = \pi\left(\sqrt{x}\right) + \phi\left(x, \pi\left(\sqrt{x}\right)\right) - 1$$
+Here, $\pi\left(\sqrt{x}\right)$ counts the number of prime numbers below $\sqrt{x}$, whereas 
+$\phi\left(x, \pi\left(\sqrt{x}\right)\right) - 1$ counts the number of primes between $\sqrt{x}$ and $n$. We need the
+minus 1 there as 1 is coprime to every number, so the $\phi$ term counts it as well.
+
+\subsubsection{Evaluation of $\phi$}
+The reason this might be a good idea is that we have a recurrence we can use to evaluate $\phi$. If $p_a$ is the
+$a$th prime, then:
+$$\phi(x,a) = \phi(x, a-1) - \phi(x/p_a, a-1)$$
+We get this by thinking about numbers that are or aren't coprime to $p_a$ below $x$. Many of the further methods
+either try to reduce the value of $a$ in this evaluation, or reduce the depth at which we need to recurse.
+
+\subsection{The Meissel-Lehmer Method}
+Legendre's method by itself doesn't really help - we need an optimisation. We split the evaluation of $\phi$ into an
+infinite class of functions - define $P_k(x, a)$ to be the number of numbers at most $x$ that have exactly $k$ prime
+factors (not necessarily distinct) and that are coprime to the first $a$ prime numbers. Then, clearly:
+$$\phi(x,a) = \sum_{k=0}^{\infty}P_k(x,a)$$
+Notice that $P_0(x,a)=1$ for $x\geq1$.
+But also, provided that $a\leq\pi(x)$, we have (as $P_1$ counts terms with exactly 1 prime factor):
+$$P_1(x,a)=\pi(x) - a$$
+And hence, for $a\leq\pi(x)$ and $x\geq1$ we have:
+$$\pi(x) = a - 1 + \phi(x,a) - \sum_{k=2}^{\infty}P_k(x,a)$$
+The reason that we transform the expression in this way, is that the minimum value of an integer that can
+contribute to the expression $P_k(x,a)$ is $p_{a+1}^k$. Hence, if $a\geq\pi\left(\sqrt[k]{x}\right)$, we have
+that $P_k(x,a) = 0$. This gives us our first practical methods for larger numbers - set $a=\pi\left(\sqrt[4]{x}\right)$
+(Meissel's method) or set $a=\pi\left(\sqrt[3]{x}\right)$.
+
+\subsubsection{Meissel's Method}
+Chronologically, this method came first, but isn't the method that most other ones build off of. Perhaps this
+is because Meissel did not yet have the advantage of computers, so the advantage of evaluating a much smaller
+tree of $\phi$ was worth more than the simplicity of Lehmer's method.
+
+Here we set $a=\pi\left(\sqrt[4]{x}\right)$
+
+\subsubsection*{Evaluation of $P_2$}
+If $x=pq$ with $p$ and $q$ primes, then $x/p$ is prime. For a term to contribute to $P_2(x,a)$, we must then
+have that $p,q>p_a$ and hence, by fixing $p$ as the smaller prime, we want to evaluate:
+
+\begin{align*}
+  P_2(x,a)
+    &=\sum_{b=a+1}^{\pi(\sqrt{x})}\left(\pi\left(x/p_b\right) - (b - 1)\right)\\
+    &=\frac{a(a-1)}{2}-\frac{\pi\left(\sqrt{x}\right)(\pi\left(\sqrt{x}\right)-1)}{2}
+      +\sum_{b=a+1}^{\pi(\sqrt{x})}\pi\left(x/p_b\right)
+  \end{align*}
+
+\subsubsection*{Evaluation of $P_3$}
+Similarly to $P_2$, we get that:
+\begin{equation*}
+  P_3(x,a)
+    =\sum_{b=a+1}^{\pi(\sqrt[3]{x})}\sum_{c=b}^{\pi(\sqrt[3]{x})}\left(\pi\left(\frac{x}{p_bp_c}\right) - (c - 1)\right)
+  \end{equation*}
+
+\subsubsection{Lehmer's Method}
+Very similar to Meissel's method, except we set $a$ to a larger value at $a=\pi\left(\sqrt[3]{x}\right)$. This
+has the benefit of making the calculation of $P_2$ slightly easier, and sets the $P_3$ term to 0. We don't
+use this method here, as it proves to be slower than Meissel's.
+
+\subsection{The Lagarias-Miller-Odlyzko Method}
+The LMO method introduces the ability to parallelise the computation, as well as reduce the size
+of the tree that gets computed. Here, we set $a=\pi\left(\sqrt[3]{x}\right)$
+
+\subsubsection{Computation of $P_2$}
+This is as above. The computation is done in parallel by sieving blocks of the interval 
+
+\subsection{The Delaglise-Rivat Method}
+
+\subsection{The Gourdon Method}
+
+\paragraph{Outline}
+The remainder of this article is organized as follows.
+Section~\ref{previous work} gives account of previous work.
+Our new and exciting results are described in Section~\ref{results}.
+Finally, Section~\ref{conclusions} gives the conclusions.
+
+\section{Previous work}\label{previous work}
+A much longer \LaTeXe{} example was written by Gil~\cite{Gil:02}.
+
+\section{Results}\label{results}
+In this section we describe the results.
+
+\section{Conclusions}\label{conclusions}
+We worked hard, and achieved very little.
+
+\section{References}
+LMO: http://www.dtc.umn.edu/~odlyzko/doc/arch/meissel.lehmer.pdf
+DR: http://sweet.ua.pt/tos/bib/5.4.pdf
+Gourdon: http://numbers.computation.free.fr/Constants/Primes/Pix/pixtableproject.html
+
+\end{document}

@@ -4,14 +4,15 @@ extern crate primal_count;
 use criterion::{Criterion, ParameterizedBenchmark};
 use primal_count::PrimeCounter;
 
-const SIZES: [usize; 7] = [
+const SIZES: [usize; 6] = [
     100,
     10_000,
     100_000,
     1_000_000,
     10_000_000,
     10_000_000_000,
-    100_000_000_000,
+    //100_000_000_000,
+    //1_000_000_000_000,
 ];
 
 macro_rules! create_benchmarks {
@@ -40,15 +41,29 @@ create_benchmarks! {
     }
 
     fn prime_pi(SIZES) {
-        "PrimeCounter" => |b, upto: &usize| {
-            let mut s = PrimeCounter::new(*upto + 1);
-            b.iter(|| s.prime_pi(*upto));
-        },
+        // "PrimeCounter" => |b, upto: &usize| {
+        //     let mut s = PrimeCounter::new(*upto + 1);
+        //     b.iter(|| s.prime_pi(*upto));
+        // },
 
         "PrimeCounter with init" => |b, upto: &usize| {
             b.iter(|| {
                 let mut s = PrimeCounter::new(*upto + 1);
                 s.prime_pi(*upto)
+                });
+        },
+
+        "LMO with init" => |b, upto: &usize| {
+            b.iter(|| {
+                let mut s = PrimeCounter::new(*upto + 1);
+                s.primes_less_than_lmo(*upto)
+                });
+        },
+
+        "Meissel with init" => |b, upto: &usize| {
+            b.iter(|| {
+                let mut s = PrimeCounter::new(*upto + 1);
+                s.primes_less_than_meissel(*upto)
                 });
         },
     }

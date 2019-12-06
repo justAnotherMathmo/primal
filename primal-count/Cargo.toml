@@ -15,6 +15,7 @@ A combinatorial prime counting library
 
 [dependencies]
 primal-sieve = { path = "../primal-sieve", version = "0.2.9" }
+rayon = "1.2.0"
 
 [dev-dependencies]
 primal = { path = "..", version = "0.2" }
