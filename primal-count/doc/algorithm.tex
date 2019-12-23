@@ -13,7 +13,7 @@
 \date{\today}
 
 \documentclass[12pt]{article}
-\usepackage{bbm}
+%\usepackage{bbm}
 \usepackage{amsmath}
 
 \begin{document}
@@ -104,21 +104,43 @@ This is as above. The computation is done in parallel by sieving blocks of the i
 \subsection{The Delaglise-Rivat Method}
 
 \subsection{The Gourdon Method}
+Fix values of $y,z$ s.t. $x^{1/3} < y \leq z < x^{1/2}$ as in Delaglise-Rivat, and let $k$ be a small (integer) constant. Let
+\begin{equation*}
+  \chi(\alpha) =
+    \begin{cases}
+      2\ \mathrm{if}\ \alpha < y\\
+      1\ \mathrm{if}\ \alpha \geq y
+    \end{cases}
+\end{equation*}
 
-\paragraph{Outline}
-The remainder of this article is organized as follows.
-Section~\ref{previous work} gives account of previous work.
-Our new and exciting results are described in Section~\ref{results}.
-Finally, Section~\ref{conclusions} gives the conclusions.
+Let $\mu(n)$ be the M\"{o}bius function, $\gamma(n)$ the largest prime factor of $n$ and $\delta(n)$ the smallest prime factor of $n$.
 
-\section{Previous work}\label{previous work}
-A much longer \LaTeXe{} example was written by Gil~\cite{Gil:02}.
+Furthermore, let $a=\pi\left(y\right)$, $b=\pi\left(x^{1/3}\right)$, $c=\pi\left((x/y)^{1/2}\right)$, $d=\pi\left(x^*\right)$
+and $x^*=\mathrm{max}\left(x^{1/4}, x/y^2\right)$. Then, define:
+\begin{align*}
+  A &= \sum_{x^* < p \leq x^{1/3}}\sum_{p < q \leq (x/p)^{1/2}}\chi\left(\frac{x}{pq}\right)\pi\left(\frac{x}{pq}\right)\\
+  B &= \sum_{y < p \leq x^{1/2}}\pi\left(\frac{x}{p}\right)\\
+  C &= -\sum_{p_k < p \leq x^*} \sum_{m: m\leq z<pm,\delta(m)>p,\gamma(m)\leq y, m>x/p^3}\mu(m)\left(\pi\left(\frac{x}{pm}\right)-\pi(p)+2\right)\\
+  D &= -\sum_{p_k < p \leq x^*} \sum_{m: m\leq z<pm,\delta(m)>p,\gamma(m)\leq y, m\leq x/p^3}\mu(m)\phi\left(\frac{x}{pm},\pi(p)-1\right)\\
+  \phi_0 &= \sum_{n\leq y,\delta(n) >p_k}\mu(n)\phi\left(\frac{x}{n}, k\right)\\
+  \Sigma_0 &= a - 1 + \frac{\pi\left(x^{1/2}\right)\left(\pi\left(x^{1/2}\right) - 1\right)}{2} - \frac{a(a-1)}{2}\\
+  \Sigma_1 &= \frac{(a-b)(a-b-1)}{2}\\
+  \Sigma_2 &= a\left(b - c - \frac{c(c-3)}{2} + \frac{d(d-3)}{2}\right)\\
+  \Sigma_3 &= \frac{b(b-1)(2b-1)}{6} - b - \frac{d(d-1)(2d-1)}{6} + d\\
+  \Sigma_4 &= \pi(y) \sum_{x^* < p \leq (x/y)^{1/2}}\pi\left(\frac{x}{py}\right)\\
+  \Sigma_5 &= \sum_{(x/y)^{1/2} < p \leq x^{1/3}}\pi\left(\frac{x}{p^2}\right)\\
+  \Sigma_6 &= -\sum_{x^* < p \leq x^{1/3}}\pi\left(\frac{x^{1/2}}{p^{1/2}}\right)^2\\
+  \Sigma &= \Sigma_0 + \Sigma_1 + \Sigma_2 + \Sigma_3 + \Sigma_4 + \Sigma_5 + \Sigma_6
+\end{align*}
 
-\section{Results}\label{results}
-In this section we describe the results.
+Then, we have that:
 
-\section{Conclusions}\label{conclusions}
-We worked hard, and achieved very little.
+\[
+  \pi(x) = A - B + C + D + \phi_0 + \Sigma  
+\]
+
+As is the case in the other methods, to make this optimal we pick $y=Kx^{1/3}\log^3(x)\log\log(x)$, with $K$ a parameter to be optimised around,
+but should be within an order of magnitude of 1 (I think). Further, we pick $z = Ly$ with $L>1$ as a parameter to be optimised.
 
 \section{References}
 LMO: http://www.dtc.umn.edu/~odlyzko/doc/arch/meissel.lehmer.pdf
