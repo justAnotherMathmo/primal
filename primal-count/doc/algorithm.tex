@@ -15,6 +15,7 @@
 \documentclass[12pt]{article}
 %\usepackage{bbm}
 \usepackage{amsmath}
+\usepackage{hyperref}
 
 \begin{document}
 \maketitle
@@ -24,6 +25,9 @@ Here we briefly detail the algorithms used within to evaluate $\pi(x)$ - the num
 \end{abstract}
 
 \section{The Maths}
+\subsection{Notation}
+Let $\mu(n)$ be the M\"{o}bius function, $\gamma(n)$ the largest prime factor of $n$ and $\delta(n)$ the smallest prime factor of $n$.
+
 \subsection{Sieve of Eratosthenes}
 This is the algorithm everyone knows - but it's worth detailing, because it feeds into the combinatorial algorithms.
 The sieve of Eratosthenes works by writing down a bit for each number from 2 to $x$. Then you walk along the sieve
@@ -45,7 +49,10 @@ minus 1 there as 1 is coprime to every number, so the $\phi$ term counts it as w
 \subsubsection{Evaluation of $\phi$}
 The reason this might be a good idea is that we have a recurrence we can use to evaluate $\phi$. If $p_a$ is the
 $a$th prime, then:
-$$\phi(x,a) = \phi(x, a-1) - \phi(x/p_a, a-1)$$
+\begin{equation}
+\label{eq:phi-recurrence}
+\phi(x,a) = \phi(x, a-1) - \phi(x/p_a, a-1)
+\end{equation}
 We get this by thinking about numbers that are or aren't coprime to $p_a$ below $x$. Many of the further methods
 either try to reduce the value of $a$ in this evaluation, or reduce the depth at which we need to recurse.
 
@@ -96,12 +103,58 @@ use this method here, as it proves to be slower than Meissel's.
 
 \subsection{The Lagarias-Miller-Odlyzko Method}
 The LMO method introduces the ability to parallelise the computation, as well as reduce the size
-of the tree that gets computed. Here, we set $a=\pi\left(\sqrt[3]{x}\right)$
+of the tree that gets computed. Here, set $a=\pi\left(\sqrt[3]{x}\right)$
 
 \subsubsection{Computation of $P_2$}
-This is as above. The computation is done in parallel by sieving blocks of the interval 
+This is as above. The computation is done in parallel by sieving blocks of the interval.
+
+%\subsubsection{Computation of $\phi$}
+%This is done differently - here we prune the tree a little. We make the distinction between an ``ordinary leaf'' and a ``special leaf''.
+%This is used to decide when to note use the recurrence to compute a node $\phi\left(\frac{x}{n},b\right)$. For an \emph{ordinary leaf}, we have
+%$b=0$ and $n\leq x^{1/3}$, whereas for a \emph{special leaf} $n > x^{1/3}$. We will impose further restrictions on special leaves in a second, 
+%to ensure that we don't double count them.
+%
+%The computation being done is:
+%
+%$$\phi\left(x,\pi\left(x^{1/3}\right)\right) = \sum_{(n,0)\ \mathrm{ordinary}}\mu(n)\phi\left(\frac{x}{n},0\right) +
+%                        \sum_{(n,b)\ \mathrm{special}}\mu(n)\phi\left(\frac{x}{n},b\right)$$
+%
+%Hence, we can restrict our attention to squarefree values of $n$. Further, our path to getting to a special leave involves picking a decreasing
+%set of primes for the factorisation of $n$, ending at $p_{b+1}$. Hence, for the special leaves we have
+%$n=p_{\alpha_1}p_{\alpha_2}\cdots p_{\alpha_r}$ with $\pi\left(x^{1/3}\right) \geq \alpha_1 > \alpha_2 > \cdots > \alpha_r = b+1$
+%and $n > x^{1/3} \geq \frac{n}{p_{b+1}}$. Note that here, $b$ is not fixed.
+
+\subsubsection{Computation of $\phi$}
+This is done differently - here we prune the tree a little. We make the distinction between an ``ordinary leaf'' and a ``special leaf'' as
+points at which we stop expanding the tree of computation that comes from the recurrence \eqref{eq:phi-recurrence}, so we use it to
+decide whether or not to compute a node $\phi\left(\frac{x}{n},b\right)$.
+Here, we pick some parameter $k$ and some value $x^{2/5} \geq y \geq x^{1/3}$. For an \emph{ordinary leaf}, we have
+$b=k$ and $n\leq y$, whereas for a \emph{special leaf} we have $n > y$.
+
+The computation being done is:
+
+$$\phi\left(x,\pi\left(x^{1/3}\right)\right) = \sum_{(n,0)\ \mathrm{ordinary}}\mu(n)\phi\left(\frac{x}{n},0\right) +
+                        \sum_{(n,b)\ \mathrm{special}}\mu(n)\phi\left(\frac{x}{n},b\right)$$
+
+Hence, we can restrict our attention to squarefree values of $n$.
+
+Now, we could enumerate all the positions by looking at the tree top-down, but it's going to be more efficient if we just know the terms
+we'll need to compute the values at. Notice that we stop the computation if we either hit a second argument of $k$ (i.e. get to an ordinary leaf)
+or make $n>y$ (i.e. hit a special leaf). Further, notice that each squarefree number with prime factors all less than $x^{1/3}$ occurs at most
+once in the tree (dropping out if we hit a leaf). Hence, we need to compute a special leaf if that is the point at which we make $n>y$. 
+
+This means that we need to compute (for the ordinary leaves), all squarefree values of $n\leq y$ with prime factors at most $x^{1/3}$.
+
+For the special leaves, as the node above it wasn't a special leaf, the node $\phi\left(\frac{x}{n}, b\right)$ must have $p_{b+1}n > y$.
+Hence, we have that special leaves are exactly the values with $p_{b+1}n \geq y > n, \delta(n) = p_{b+1}, \gamma(n) \leq x^{1/3}$
+and $n$ squarefree.
+
+\subsubsection{Parallelism}
+The above algorithm can be implemented in parallel - as can the later methods. To do this, we need some precomputation. All primes below $x^{1/3}$
+need to be computed so that they can be used to sieve blocks of length at least $x^{1/3}$.
 
 \subsection{The Delaglise-Rivat Method}
+Not documented here. It's similar to the Gourdon method, but slower. There's a very good paper on this, mentioned in the references section.
 
 \subsection{The Gourdon Method}
 Fix values of $y,z$ s.t. $x^{1/3} < y \leq z < x^{1/2}$ as in Delaglise-Rivat, and let $k$ be a small (integer) constant. Let
@@ -112,8 +165,6 @@ Fix values of $y,z$ s.t. $x^{1/3} < y \leq z < x^{1/2}$ as in Delaglise-Rivat, a
       1\ \mathrm{if}\ \alpha \geq y
     \end{cases}
 \end{equation*}
-
-Let $\mu(n)$ be the M\"{o}bius function, $\gamma(n)$ the largest prime factor of $n$ and $\delta(n)$ the smallest prime factor of $n$.
 
 Furthermore, let $a=\pi\left(y\right)$, $b=\pi\left(x^{1/3}\right)$, $c=\pi\left((x/y)^{1/2}\right)$, $d=\pi\left(x^*\right)$
 and $x^*=\mathrm{max}\left(x^{1/4}, x/y^2\right)$. Then, define:
@@ -143,8 +194,8 @@ As is the case in the other methods, to make this optimal we pick $y=Kx^{1/3}\lo
 but should be within an order of magnitude of 1 (I think). Further, we pick $z = Ly$ with $L>1$ as a parameter to be optimised.
 
 \section{References}
-LMO: http://www.dtc.umn.edu/~odlyzko/doc/arch/meissel.lehmer.pdf
-DR: http://sweet.ua.pt/tos/bib/5.4.pdf
-Gourdon: http://numbers.computation.free.fr/Constants/Primes/Pix/pixtableproject.html
+LMO: \url{http://www.dtc.umn.edu/~odlyzko/doc/arch/meissel.lehmer.pdf} \\
+DR: \url{http://sweet.ua.pt/tos/bib/5.4.pdf} \\
+Gourdon: \url{http://numbers.computation.free.fr/Constants/Primes/Pix/pixtableproject.html}
 
 \end{document}
